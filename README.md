@@ -10,5 +10,3 @@ Has been tested on Finnish Osuuspankki CSV files. If you're able to use ynab-csv
 <li>*osuuspankki.cfg* - A config file for the python script. Specific to Osuuspankki.</li>
 <li>*op_csv_fetcher.user.js* - A Greasemonkey script that can be used to fetch CSVs faster. Using this requires you to make small modifications to Javascript. If you have no coding skills, forget about it.</li>
 </ul>
-
-
