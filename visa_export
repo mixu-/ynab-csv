@@ -19,9 +19,9 @@ var usedRows = [];
         var memo   = "";
         var inflow   = "";
         var outflow = "";
-        var date = $(this).find(".Ensimmainen").text().replace(/(  |\n|\t)/g,'').trim();
-        var payee = $(this).find(".EiAlleviivattu").text().replace(/(  |\n|\t)/g,'').trim();
-        var amount = $(this).find(".Nowrap").first().text().replace(/(  |\n|\t)/g,'').trim().replace(",", ".");
+        var date = $(this).find(".Ensimmainen").text().replace(/( |\n|\t)/g,'').trim();
+        var payee = $(this).find(".EiAlleviivattu").text().replace(/(  |\n|\t)/g,' ').trim();
+        var amount = $(this).find(".Nowrap").first().text().replace(/( |\n|\t)/g,'').trim().replace(",", ".");
         if ( parseFloat(amount) < 0 ) {
           outflow = Math.abs(parseFloat(amount));
         }
