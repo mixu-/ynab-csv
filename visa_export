@@ -1,0 +1,63 @@
+// ==UserScript==
+// @name         Export Transactions
+// @namespace    https://www.op.fi/
+// @version      0.1
+// @description  Export VISA transactions from Osuuspankki to an http server (Google Spreadsheets for instance).
+// @author       Mikko Mattila
+// @require     http://ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js
+// @match        http://stackoverflow.com/questions/11275378/cross-domain-post-with-greasemonkey
+// @grant        GM_xmlhttpRequest
+// ==/UserScript==
+
+var delay = 0;
+var outcome = "POST output:";
+var usedRows = [];
+
+( function (allDone) {
+    $(".Lomake tr").sort().each(function( index ) {
+        delay = delay + 500;
+        var memo   = "";
+        var inflow   = "";
+        var outflow = "";
+        var date = $(this).find(".Ensimmainen").text().replace(/(  |\n|\t)/g,'').trim();
+        var payee = $(this).find(".EiAlleviivattu").text().replace(/(  |\n|\t)/g,'').trim();
+        var amount = $(this).find(".Nowrap").first().text().replace(/(  |\n|\t)/g,'').trim().replace(",", ".");
+        if ( parseFloat(amount) < 0 ) {
+          outflow = Math.abs(parseFloat(amount));
+        }
+        else {
+          inflow = Math.abs(parseFloat(amount));
+        }
+        //console.log( index + ": " + date + "/" + payee + "/" + inflow + "/" + outflow );
+        if ( parseFloat(amount) ){
+            setTimeout(function() {
+                GM_xmlhttpRequest ( {
+                    method:     "POST",
+                    url:        "https://script.google.com/macros/s/AKfycbwbZI9Bt6WH8EVWnwcvxd4JR3iaohSkhva5PdGKDkY/dev",
+                    data:       "Date=" + encodeURIComponent (date)
+                    + "&" + "Payee=" +    encodeURIComponent (payee)
+                    + "&" + "Memo=" +     encodeURIComponent (memo)
+                    + "&" + "Outflow=" +  encodeURIComponent (outflow)
+                    + "&" + "Inflow=" +   encodeURIComponent (inflow)
+                    ,
+                    onload: function(req) {
+                        outcome = outcome + req.status + ' ' + req.responseText +'\n';
+                        console.log(req.status + ' ' + req.responseText);
+                        var resp = JSON.parse(req.responseText);
+                        if ( usedRows.indexOf(resp.row) > -1 ) {
+                            alert("ERROR: There was a collision! Double check the data.\Execution aborted.");
+                            return
+                        }
+                        usedRows.push(resp.row);
+                        $("body").prepend("OK / row " + resp.row + " / Total rows uploaded: " + usedRows.length + "<br/>");
+                    },
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    }
+                } );
+            }, delay); 
+        }
+    });
+}
+) ( );
+
