@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Export Transactions
+// @name         Export VISA Transactions
 // @namespace    https://www.op.fi/
 // @version      0.1
 // @description  Export VISA transactions from Osuuspankki to an http server (Google Spreadsheets for instance).
@@ -13,51 +13,79 @@ var delay = 0;
 var outcome = "POST output:";
 var usedRows = [];
 
-( function (allDone) {
+function main() {
     $(".Lomake tr").sort().each(function( index ) {
-        delay = delay + 500;
-        var memo   = "";
-        var inflow   = "";
-        var outflow = "";
+        delay = delay + 1000; // Must delay the subsequent requests to make sure the data has been written to Sheets before next is sent.
         var date = $(this).find(".Ensimmainen").text().replace(/( |\n|\t)/g,'').trim();
         var payee = $(this).find(".EiAlleviivattu").text().replace(/(  |\n|\t)/g,' ').trim();
         var amount = $(this).find(".Nowrap").first().text().replace(/( |\n|\t)/g,'').trim().replace(",", ".");
-        if ( parseFloat(amount) < 0 ) {
-          outflow = Math.abs(parseFloat(amount));
+        var transaction = {
+            memo: "",
+            inflow: "",
+            outflow: "",
+            date: date,
+            payee: payee,
+            amount: amount
+        };
+        if ( parseFloat(transaction.amount) < 0 ) {
+          transaction.outflow = Math.abs(parseFloat(transaction.amount));
         }
         else {
-          inflow = Math.abs(parseFloat(amount));
+          transaction.inflow = Math.abs(parseFloat(transaction.amount));
         }
         //console.log( index + ": " + date + "/" + payee + "/" + inflow + "/" + outflow );
-        if ( parseFloat(amount) ){
+        if ( parseFloat(transaction.amount) ){
+            var status = 0;
             setTimeout(function() {
-                GM_xmlhttpRequest ( {
-                    method:     "POST",
-                    url:        "https://script.google.com/macros/s/AKfycbwbZI9Bt6WH8EVWnwcvxd4JR3iaohSkhva5PdGKDkY/dev",
-                    data:       "Date=" + encodeURIComponent (date)
-                    + "&" + "Payee=" +    encodeURIComponent (payee)
-                    + "&" + "Memo=" +     encodeURIComponent (memo)
-                    + "&" + "Outflow=" +  encodeURIComponent (outflow)
-                    + "&" + "Inflow=" +   encodeURIComponent (inflow)
-                    ,
-                    onload: function(req) {
-                        outcome = outcome + req.status + ' ' + req.responseText +'\n';
-                        console.log(req.status + ' ' + req.responseText);
-                        var resp = JSON.parse(req.responseText);
-                        if ( usedRows.indexOf(resp.row) > -1 ) {
-                            alert("ERROR: There was a collision! Double check the data.\Execution aborted.");
-                            return
-                        }
-                        usedRows.push(resp.row);
-                        $("body").prepend("OK / row " + resp.row + " / Total rows uploaded: " + usedRows.length + "<br/>");
-                    },
-                    headers: {
-                        "Content-Type": "application/x-www-form-urlencoded"
-                    }
-                } );
-            }, delay); 
+                sendData(transaction, true);
+            }, delay);
         }
     });
 }
-) ( );
+ 
+function sendData(transaction, tryagain) {
+    //console.log("Sending: ");
+    //console.log(transaction);
+    GM_xmlhttpRequest ( {
+        method:     "POST",
+        url:        "https://script.google.com/macros/s/AKfycbwbZI9Bt6WH8EVWnwcvxd4JR3iaohSkhva5PdGKDkY/dev",
+        data:       "Date=" + encodeURIComponent (transaction.date)
+        + "&" + "Payee=" +    encodeURIComponent (transaction.payee)
+        + "&" + "Memo=" +     encodeURIComponent (transaction.memo)
+        + "&" + "Outflow=" +  encodeURIComponent (transaction.outflow)
+        + "&" + "Inflow=" +   encodeURIComponent (transaction.inflow)
+        ,
+        onload: function(req) {
+            var do_retry = false;
+            status = req.status;
+            console.log(req.status + ' ' + req.responseText);
+            try {
+                var resp = JSON.parse(req.responseText);
+                console.log(resp);
+            } catch(e) {
+                console.log
+                do_retry = true;
+            }
+            if ( do_retry || usedRows.indexOf(resp.row) > -1 ) {
+                if (tryagain) {
+                    delay = delay + 1000;
+                    setTimeout(function() {
+                        console.log("Trying again once.");
+                        sendData(transaction, false); // Try again.
+                    }, delay);
+                }
+                else {
+                    alert("ERROR: There was a collision! Double check the data.\nExecution aborted.");
+                }
+                return;
+            }
+            usedRows.push(resp.row);
+            $("body").prepend("OK / row " + resp.row + " / Total rows uploaded: " + usedRows.length + "<br/>");
+        },
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+    } );
+}
 
+main();
