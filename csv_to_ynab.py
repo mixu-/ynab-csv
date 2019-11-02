@@ -11,29 +11,35 @@ import configparser
 from pprint import pprint, pformat
 import hashlib
 import os
+import yaml
 import ynab
+
+DRY_RUN = False
+
 from ynab.rest import ApiException
 
-def validate_files(reader, conf_dict):
+def validate_file(input_file, conf):
     """Validates that the CSV matches the config file field definitions
         @param csvfile - Name of the file.
         @param conf_dict - A config object.
     """
 
-    if not conf_dict['date'] in reader.fieldnames:
-        print("ERROR: Can't find " + conf_dict['date'] + " from input file")
+    reader = csv.DictReader(open(input_file, "r"), delimiter='\t', quoting=csv.QUOTE_NONE)
+    fieldnames = reader.fieldnames
+    if not conf['date'] in fieldnames:
+        print(f"ERROR: Can't find {conf['date']} from input file")
         return False
-    if not conf_dict['payee'] in reader.fieldnames:
-        print("ERROR: Can't find " + conf_dict['payee'] + " from input file")
+    if not conf['payee'] in fieldnames:
+        print(f"ERROR: Can't find {conf['payee']} from input file")
         return False
-    if not conf_dict['note'] in reader.fieldnames:
-        print("ERROR: Can't find " + conf_dict['note'] + " from input file")
+    if not conf['note'] in fieldnames:
+        print(f"ERROR: Can't find {conf['note']} from input file")
         return False
-    if not conf_dict['category'] in reader.fieldnames:
-        print("ERROR: Can't find " + conf_dict['category'] + " from input file")
+    if not conf['category'] in fieldnames:
+        print(f"ERROR: Can't find {conf['category']} from input file")
         return False
-    if not conf_dict['amount'] in reader.fieldnames:
-        print("ERROR: Can't find " + conf_dict['amount'] + " from input file")
+    if not conf['amount'] in fieldnames:
+        print(f"ERROR: Can't find {conf['amount']} from input file")
         return False
 
     return True
@@ -46,6 +52,25 @@ def get_configuration(token):
     configuration.api_key_prefix['Authorization'] = 'Bearer'
     return configuration
 
+def get_upload_conf(csv_file, secrets_file):
+    with open(secrets_file, 'r') as ymlfile:
+        secrets = yaml.load(ymlfile, Loader=yaml.FullLoader)
+
+    pprint(secrets)
+    account = None
+    for item in secrets["account_map"]:
+        for pattern in item["patterns"]:
+            if pattern in csv_file:
+                account = item
+                pprint(item)
+                break
+    return {
+        "token": secrets["token"],
+        "account_id": account["id"],
+        "account_name": account["name"],
+        "budget_id": secrets["budget_id"]
+    }
+
 def bulk_upload_transaction(transactions: list, conf: dict):
     """Uploads the transactions list to YNAB."""
 
@@ -53,77 +78,90 @@ def bulk_upload_transaction(transactions: list, conf: dict):
     # create an instance of the API class
     ts_list = []
     for ts in transactions:
-        iid = hashlib.md5(pformat(ts).encode("utf-8")).hexdigest()
+        # Increment the last number in case you need to re-upload files.
+        iid = hashlib.md5(pformat(ts).encode("utf-8")).hexdigest() + "-2"
         transact = ynab.SaveTransaction(account_id=conf["account_id"],
                                         date=ts["Date"],
                                         amount=int(ts["Amount"]*1000),
-                                        memo=ts["Memo"],
+                                        memo=ts["Memo"][0:199],
                                         payee_name=ts["Payee"],
                                         import_id=iid)
         ts_list.append(transact)
     bulk_transactions = ynab.BulkTransactions(ts_list)
     api_instance = ynab.TransactionsApi(ynab.ApiClient(configuration))
-    try:
-        api_response = api_instance.bulk_create_transactions(conf["budget_id"], bulk_transactions)
-        pprint(api_response)
-    except ApiException as e:
-        print("Exception when calling TransactionsApi->bulk_create_transaction: %s\n" % e)
-        return False
+    if DRY_RUN:
+        pprint(ts_list)
+    else:
+        try:
+            api_response = api_instance.bulk_create_transactions(conf["budget_id"], bulk_transactions)
+            pprint(api_response)
+        except ApiException as e:
+            print("Exception when calling TransactionsApi->bulk_create_transaction: %s\n" % e)
+            return False
     return True
 
 
-def upload_transaction(data: dict, conf: dict):
-    """Uploads the contents of a dictionary to YNAB.
+# def upload_transaction(data: dict, conf: dict):
+#     """Uploads the contents of a dictionary to YNAB.
 
-    YNAB only allows 200 requests per hour.
-    """
-    configuration = get_configuration(conf["token"])
-    # create an instance of the API class
-    api_instance = ynab.TransactionsApi(ynab.ApiClient(configuration))
-    iid = hashlib.md5(pformat(data).encode("utf-8")).hexdigest()
-    transaction = ynab.SaveTransactionWrapper(\
-        ynab.SaveTransaction(account_id=conf["account_id"],
-                             date=data["Date"],
-                             amount=int(data["Amount"]*1000),
-                             memo=data["Memo"],
-                             payee_name=data["Payee"],
-                             import_id=iid,
-                             flag_color="blue"
-                            )
-    )
+#     YNAB only allows 200 requests per hour.
+#     """
+#     configuration = get_configuration(conf["token"])
+#     # create an instance of the API class
+#     api_instance = ynab.TransactionsApi(ynab.ApiClient(configuration))
+#     iid = hashlib.md5(pformat(data).encode("utf-8")).hexdigest()
+#     transaction = ynab.SaveTransactionWrapper(\
+#         ynab.SaveTransaction(account_id=conf["account_id"],
+#                              date=data["Date"],
+#                              amount=int(data["Amount"]*1000),
+#                              memo=data["Memo"],
+#                              payee_name=data["Payee"],
+#                              import_id=iid,
+#                              flag_color="blue"
+#                             )
+#     )
 
-    try:
-        # Create new transaction
-        pprint(data)
-        api_response = api_instance.create_transaction(conf["budget_id"], transaction)
-        pprint(api_response)
-    except ApiException as e:
-        print("Exception when calling TransactionsApi->create_transaction: %s\n" % e)
+#     try:
+#         # Create new transaction
+#         pprint(data)
+#         api_response = api_instance.create_transaction(conf["budget_id"], transaction)
+#         pprint(api_response)
+#     except ApiException as e:
+#         print("Exception when calling TransactionsApi->create_transaction: %s\n" % e)
+
+def clean_up_csv(file_name, conf):
+    """Returns the path to a cleaned up CSV file"""
+
+    new_file = file_name + ".tmp"
+    with open(file_name, "r") as sourcef:
+        with open(new_file, "w") as targetf:
+            start_line = int(conf.get('global', 'start_line'))
+            print(f"Start line of source CSV: {start_line}")
+            for i, filerow in enumerate(sourcef):
+                if i >= start_line:
+                    #Skip empty rows
+                    if filerow.strip() != "":
+                        targetf.write(filerow)
+    return new_file
 
 def convert(source, config, target_file=None, upload_conf=None):
     """Converts the source CSV file to YNAB format.
     Based on the rules defined in config file."""
 
     strippable_notes = config.items('strippable_notes')
-    conf_dict = {
-        'amount' : config.get('data_fields', 'amount'),
-        'payee' : config.get('data_fields', 'payee'),
-        'date' : config.get('data_fields', 'date'),
-        'note' : config.get('data_fields', 'note'),
-        'category' : config.get('data_fields', 'category'),
-        'delimiter' : config.get('data_fields', 'delimiter'),
-        'date_format' : config.get('data_fields', 'date_format')
-    }
+    conf_dict = config['data_fields']
 
+    if not validate_file(source, config["data_fields"]):
+        print(f"ERROR: Invalid fields in {source}")
+        return False, 0
     with open(source, 'r') as infile:
-        print("Delimiter: " + conf_dict["delimiter"])
+        print("Delimiter: " + conf_dict['delimiter'])
         reader = csv.DictReader(infile, delimiter='\t', quoting=csv.QUOTE_NONE)
-        if not validate_files:
-            return False
 
         fieldnames = ['Date', 'Payee', 'Category', 'Memo', 'Outflow', 'Inflow']
         csvfile = None
         if target_file:
+            print(f"Writing to {target_file}")
             csvfile = open(target_file, 'w')
             writer = csv.DictWriter(csvfile, delimiter=',',
                                     fieldnames=fieldnames)
@@ -156,11 +194,14 @@ def convert(source, config, target_file=None, upload_conf=None):
             if upload_conf:
                 date = datetime.datetime.strptime(row[conf_dict["date"]], conf_dict["date_format"])
                 upload_obj["Date"] = date.strftime("%Y-%m-%d")
-                #upload_transaction(row_obj, upload_conf)
                 upload_transactions.append(upload_obj)
+    counter = len(upload_transactions)
+    print(f"Found {counter} transactions")
+    if counter == 0:
+        return False, 0
     if upload_conf:
-        return bulk_upload_transaction(upload_transactions, upload_conf)
-    return True
+        ok = bulk_upload_transaction(upload_transactions, upload_conf)
+    return ok, counter
 
 def handle_cmdline():
     """Main function"""
@@ -169,52 +210,34 @@ def handle_cmdline():
     parser.add_argument('--outfile', help='File to save to (optional)')
     parser.add_argument('--bank_config', help='Bank CSV format config file. \
         Defaults to nordea.cfg', default='nordea.cfg')
-    parser.add_argument('--token', help="YNAB API token")
-    parser.add_argument('--budget_id', help="YNAB budget id")
-    parser.add_argument('--account_id', help="YNAB account id")
+    parser.add_argument('--upload', default=False, action='store_true')
+    parser.add_argument('--upload_config', default='my_secrets.yml',
+                        help='Upload configuration file with token and account mapping.')
 
     args = parser.parse_args()
 
+    if not args.outfile and not args.upload:
+        print("ERROR: Must use either --outfile or --upload")
+        sys.exit(1)
     list_of_files = glob.glob(args.infile)
+    if not list_of_files:
+        print("No files matched infile search criteria!")
+        sys.exit(1)
     conf = configparser.ConfigParser()
-    conf.read_file(open(args.bank_config))
+    conf.read_file(open(args.bank_config, "r"))
 
     for file_name in list_of_files:
-        new_file = file_name.replace(".csv", ".tmp.csv")
-        sourcef = open(file_name)
-        targetf = open(new_file, "w")
-        start_line = 0
-
-        start_line = int(conf.get('global', 'start_line'))
-        print(f"Start line of source CSV: {start_line}")
-        counter = 0
-        for i, filerow in enumerate(sourcef):
-            if i >= start_line:
-                #Skip empty rows
-                if filerow.strip() != "":
-                    counter += 1
-                    targetf.write(filerow)
-        sourcef.close()
-        targetf.close()
-        do_upload = False
-        if not args.outfile and not args.token:
-            print("ERROR: Must define either --outfile or --token")
-            sys.exit(1)
-        if args.token:
-            do_upload = True
-            if not args.budget_id or not args.account_id:
-                print("ERROR: Must define --budget_id and --account_id for uploading.")
-                sys.exit(1)
-            upload_conf = {
-                "token": args.token,
-                "account_id": args.account_id,
-                "budget_id": args.budget_id
-            }
-        if convert(new_file, conf, target_file=args.outfile, upload_conf=upload_conf):
-            print(f"Successfully converted {counter} transactions to "
-                  + file_name.replace(".csv", "_ynab.csv"))
+        clean_file = clean_up_csv(file_name, conf)
+        if args.upload:
+            upload_conf = get_upload_conf(file_name, args.upload_config)
+        success, counter = convert(clean_file, conf,
+                                   target_file=args.outfile,
+                                   upload_conf=upload_conf)
+        if success:
+            print(f"Successfully processed {counter} transactions.")
         else:
             print("Something went wrong with " + file_name)
-        os.remove(new_file)
+        print(f"Deleting {clean_file}")
+        os.remove(clean_file)
 
 handle_cmdline()
