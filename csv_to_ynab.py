@@ -56,7 +56,6 @@ def get_upload_conf(csv_file, secrets_file):
     with open(secrets_file, 'r') as ymlfile:
         secrets = yaml.load(ymlfile, Loader=yaml.FullLoader)
 
-    pprint(secrets)
     account = None
     for item in secrets["account_map"]:
         for pattern in item["patterns"]:
@@ -66,10 +65,23 @@ def get_upload_conf(csv_file, secrets_file):
                 break
     return {
         "token": secrets["token"],
-        "account_id": account["id"],
+        "account_id": account["account_id"],
         "account_name": account["name"],
-        "budget_id": secrets["budget_id"]
+        "budget_id": account["budget_id"]
     }
+
+def list_budgets_and_accounts(secrets_file):
+    with open(secrets_file, 'r') as ymlfile:
+        token = yaml.load(ymlfile, Loader=yaml.FullLoader)["token"]
+    configuration = get_configuration(token)
+    try:
+        budgets = ynab.BudgetsApi().get_budgets()
+        pprint(budgets)
+        for budget in budgets.to_dict()["data"]["budgets"]:
+            accounts = ynab.AccountsApi().get_accounts(budget["id"]).to_dict()["data"]["accounts"]
+            pprint(accounts)
+    except ApiException as e:
+        print("Exception calling YNAB API: %s\n" % e)
 
 def bulk_upload_transaction(transactions: list, conf: dict):
     """Uploads the transactions list to YNAB."""
@@ -206,7 +218,8 @@ def convert(source, config, target_file=None, upload_conf=None):
 def handle_cmdline():
     """Main function"""
     parser = argparse.ArgumentParser(description='Convert CSV files to YNAB format')
-    parser.add_argument('infile', help='CSV file')
+    parser.add_argument('--list', help='List budgets and accounts', action='store_true')
+    parser.add_argument('--infile', help='CSV files', default=None)
     parser.add_argument('--outfile', help='File to save to (optional)')
     parser.add_argument('--bank_config', help='Bank CSV format config file. \
         Defaults to nordea.cfg', default='nordea.cfg')
@@ -215,7 +228,9 @@ def handle_cmdline():
                         help='Upload configuration file with token and account mapping.')
 
     args = parser.parse_args()
-
+    if args.list:
+        list_budgets_and_accounts(args.upload_config)
+        sys.exit(0)
     if not args.outfile and not args.upload:
         print("ERROR: Must use either --outfile or --upload")
         sys.exit(1)
