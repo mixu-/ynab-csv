@@ -5,7 +5,10 @@ Has been tested on Finnish Nordea CSV files. If you're able to use ynab-csv for 
 
 ## Dependencies
 
-`pip3 install ynab`
+https://github.com/deanmcgregor/ynab-python
+
+`pip3 install PyYAML`
+`pip3 install git+https://github.com/deanmcgregor/ynab-python.git`
 
 ## File descriptions
 
